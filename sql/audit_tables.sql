@@ -93,7 +93,7 @@ DATA_RETENTION_TIME_IN_DAYS = 90
 COMMENT = 'PHI Access Audit Log — HIPAA §164.312(b) — Append-Only — 7yr retention via S3 WORM'
 CLUSTER BY (TO_DATE(event_time), event_type);  -- Efficient for date-range compliance queries
 
--- ⚠️  CRITICAL: No UPDATE, DELETE, or TRUNCATE grants are issued for this table.
+-- CRITICAL: No UPDATE, DELETE, or TRUNCATE grants are issued for this table.
 -- Verify with: SELECT * FROM information_schema.object_privileges
 --              WHERE object_name = 'PHI_ACCESS_LOG' AND privilege_type IN ('DELETE','UPDATE','TRUNCATE')
 -- Expected: 0 rows

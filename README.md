@@ -9,8 +9,6 @@
 ![CI/CD](https://img.shields.io/badge/CI%2FCD-GitHub_Actions-2088FF?style=for-the-badge&logo=githubactions&logoColor=white)
 ![Changelog](https://img.shields.io/badge/Changelog-v3.2.0-informational?style=for-the-badge)
 
-[![▶ Watch Live Demo](https://img.shields.io/badge/▶_Watch-Live_Demo_(5_min)-FF0000?style=for-the-badge&logo=youtube)](https://youtu.be/YOUR_DEMO_LINK_HERE)
-
 > **Architect's Note:** This case study documents the real-world implementation of a HIPAA-compliant data platform for a US multi-hospital healthcare provider. Every design decision, failure, and lesson learned documented here comes from 18 months of implementation, two SOC2 Type II audits, and one HIPAA breach readiness assessment. Numbers have been anonymized but the architecture is production-exact.
 
 ---
@@ -66,7 +64,7 @@ In 2023, HHS OCR collected **$119.3M in HIPAA settlements**. The average HIPAA f
 
 ---
 
-## 🏗️ Architecture Overview
+## 🔧 Architecture Overview
 
 ### Data Flow with Security Layers
 

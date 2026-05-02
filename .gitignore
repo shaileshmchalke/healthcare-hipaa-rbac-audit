@@ -235,15 +235,3 @@ temp/
 docs/_build/
 docs/site/
 site/
-
-
-# =============================================================================
-# PERSONAL / INTERVIEW PREP FILES — NEVER COMMIT TO PUBLIC REPO
-# These are for local use only. Pushing these to GitHub gives a poor
-# impression to clients and HR reviewers.
-# =============================================================================
-marathi-summary.md
-*-summary.md
-interview-prep/
-personal-notes/
-*.interview.md

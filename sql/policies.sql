@@ -91,7 +91,7 @@ VALUES
 CREATE OR REPLACE MASKING POLICY PHI_POLICIES_DB.PHI.mask_ssn
     AS (ssn_val STRING) RETURNS STRING ->
     CASE
-        WHEN ssn_val IS NULL THEN NULL                         -- ✅ NULL guard — prevents edge case failures
+        WHEN ssn_val IS NULL THEN NULL                         -- NULL guard: avoids edge cases on incomplete records
         WHEN CURRENT_ROLE() IN ('ACCOUNTADMIN', 'HIPAA_OFFICER', 'PHI_READER')
             THEN ssn_val                                        -- Full SSN — authorized roles only
         WHEN CURRENT_ROLE() LIKE 'HOSPITAL_ADMIN_%'
@@ -110,7 +110,7 @@ CREATE OR REPLACE MASKING POLICY PHI_POLICIES_DB.PHI.mask_ssn
 CREATE OR REPLACE MASKING POLICY PHI_POLICIES_DB.PHI.mask_dob
     AS (dob_val DATE) RETURNS DATE ->
     CASE
-        WHEN dob_val IS NULL THEN NULL                         -- ✅ NULL guard
+        WHEN dob_val IS NULL THEN NULL                         -- NULL guard
         WHEN CURRENT_ROLE() IN ('ACCOUNTADMIN', 'HIPAA_OFFICER', 'PHI_READER')
             THEN dob_val                                        -- Full DOB
         WHEN CURRENT_ROLE() LIKE 'HOSPITAL_ADMIN_%'
@@ -131,7 +131,7 @@ CREATE OR REPLACE MASKING POLICY PHI_POLICIES_DB.PHI.mask_dob
 CREATE OR REPLACE MASKING POLICY PHI_POLICIES_DB.PHI.mask_patient_name
     AS (name_val STRING) RETURNS STRING ->
     CASE
-        WHEN name_val IS NULL THEN NULL                        -- ✅ NULL guard
+        WHEN name_val IS NULL THEN NULL                        -- NULL guard
         WHEN CURRENT_ROLE() IN ('ACCOUNTADMIN', 'HIPAA_OFFICER', 'PHI_READER')
             THEN name_val                                       -- Full name
         WHEN CURRENT_ROLE() LIKE 'HOSPITAL_ADMIN_%'
@@ -148,7 +148,7 @@ CREATE OR REPLACE MASKING POLICY PHI_POLICIES_DB.PHI.mask_patient_name
 CREATE OR REPLACE MASKING POLICY PHI_POLICIES_DB.PHI.mask_mrn
     AS (mrn_val STRING) RETURNS STRING ->
     CASE
-        WHEN mrn_val IS NULL THEN NULL                         -- ✅ NULL guard
+        WHEN mrn_val IS NULL THEN NULL                         -- NULL guard
         WHEN CURRENT_ROLE() IN ('ACCOUNTADMIN', 'HIPAA_OFFICER', 'PHI_READER')
             THEN mrn_val                                        -- Real MRN
         WHEN CURRENT_ROLE() LIKE 'HOSPITAL_ADMIN_%'
@@ -166,7 +166,7 @@ CREATE OR REPLACE MASKING POLICY PHI_POLICIES_DB.PHI.mask_mrn
 CREATE OR REPLACE MASKING POLICY PHI_POLICIES_DB.PHI.mask_phone
     AS (phone_val STRING) RETURNS STRING ->
     CASE
-        WHEN phone_val IS NULL THEN NULL                       -- ✅ NULL guard
+        WHEN phone_val IS NULL THEN NULL                       -- NULL guard
         WHEN CURRENT_ROLE() IN ('ACCOUNTADMIN', 'HIPAA_OFFICER', 'PHI_READER')
             THEN phone_val
         WHEN CURRENT_ROLE() LIKE 'HOSPITAL_ADMIN_%'
@@ -179,7 +179,7 @@ CREATE OR REPLACE MASKING POLICY PHI_POLICIES_DB.PHI.mask_phone
 CREATE OR REPLACE MASKING POLICY PHI_POLICIES_DB.PHI.mask_address_street
     AS (addr_val STRING) RETURNS STRING ->
     CASE
-        WHEN addr_val IS NULL THEN NULL                        -- ✅ NULL guard
+        WHEN addr_val IS NULL THEN NULL                        -- NULL guard
         WHEN CURRENT_ROLE() IN ('ACCOUNTADMIN', 'HIPAA_OFFICER', 'PHI_READER')
             THEN addr_val
         WHEN CURRENT_ROLE() LIKE 'HOSPITAL_ADMIN_%'
@@ -195,7 +195,7 @@ CREATE OR REPLACE MASKING POLICY PHI_POLICIES_DB.PHI.mask_address_street
 CREATE OR REPLACE MASKING POLICY PHI_POLICIES_DB.PHI.mask_zip_code
     AS (zip_val STRING) RETURNS STRING ->
     CASE
-        WHEN zip_val IS NULL THEN NULL                         -- ✅ NULL guard
+        WHEN zip_val IS NULL THEN NULL                         -- NULL guard
         WHEN CURRENT_ROLE() IN ('ACCOUNTADMIN', 'HIPAA_OFFICER', 'PHI_READER')
             THEN zip_val                                        -- Full ZIP
         WHEN CURRENT_ROLE() LIKE 'HOSPITAL_ADMIN_%'
@@ -212,7 +212,7 @@ CREATE OR REPLACE MASKING POLICY PHI_POLICIES_DB.PHI.mask_zip_code
 CREATE OR REPLACE MASKING POLICY PHI_POLICIES_DB.PHI.mask_email
     AS (email_val STRING) RETURNS STRING ->
     CASE
-        WHEN email_val IS NULL THEN NULL                       -- ✅ NULL guard
+        WHEN email_val IS NULL THEN NULL                       -- NULL guard
         WHEN CURRENT_ROLE() IN ('ACCOUNTADMIN', 'HIPAA_OFFICER', 'PHI_READER')
             THEN email_val
         WHEN CURRENT_ROLE() LIKE 'HOSPITAL_ADMIN_%'
@@ -231,7 +231,7 @@ CREATE OR REPLACE MASKING POLICY PHI_POLICIES_DB.PHI.mask_email
 CREATE OR REPLACE MASKING POLICY PHI_POLICIES_DB.PHI.mask_diagnosis_code
     AS (dx_val STRING) RETURNS STRING ->
     CASE
-        WHEN dx_val IS NULL THEN NULL                          -- ✅ NULL guard
+        WHEN dx_val IS NULL THEN NULL                          -- NULL guard
         WHEN CURRENT_ROLE() IN ('ACCOUNTADMIN', 'HIPAA_OFFICER', 'PHI_READER')
             THEN dx_val                                         -- Full ICD-10 code
         WHEN CURRENT_ROLE() LIKE 'HOSPITAL_ADMIN_%'
@@ -249,7 +249,7 @@ CREATE OR REPLACE MASKING POLICY PHI_POLICIES_DB.PHI.mask_diagnosis_code
 CREATE OR REPLACE MASKING POLICY PHI_POLICIES_DB.PHI.mask_medication_name
     AS (med_val STRING) RETURNS STRING ->
     CASE
-        WHEN med_val IS NULL THEN NULL                         -- ✅ NULL guard
+        WHEN med_val IS NULL THEN NULL                         -- NULL guard
         WHEN CURRENT_ROLE() IN ('ACCOUNTADMIN', 'HIPAA_OFFICER', 'PHI_READER')
             THEN med_val
         WHEN CURRENT_ROLE() LIKE 'HOSPITAL_ADMIN_%'
@@ -267,7 +267,7 @@ CREATE OR REPLACE MASKING POLICY PHI_POLICIES_DB.PHI.mask_medication_name
 CREATE OR REPLACE MASKING POLICY PHI_POLICIES_DB.PHI.mask_npi
     AS (npi_val STRING) RETURNS STRING ->
     CASE
-        WHEN npi_val IS NULL THEN NULL                         -- ✅ NULL guard
+        WHEN npi_val IS NULL THEN NULL                         -- NULL guard
         WHEN CURRENT_ROLE() IN ('ACCOUNTADMIN', 'HIPAA_OFFICER', 'PHI_READER',
                                  'ANALYST_CLINICAL', 'ANALYST_REVENUE', 'DS_ROLE')
             THEN npi_val                                        -- NPI is public — OK to show
@@ -281,7 +281,7 @@ CREATE OR REPLACE MASKING POLICY PHI_POLICIES_DB.PHI.mask_npi
 CREATE OR REPLACE MASKING POLICY PHI_POLICIES_DB.PHI.mask_account_number
     AS (acct_val STRING) RETURNS STRING ->
     CASE
-        WHEN acct_val IS NULL THEN NULL                        -- ✅ NULL guard
+        WHEN acct_val IS NULL THEN NULL                        -- NULL guard
         WHEN CURRENT_ROLE() IN ('ACCOUNTADMIN', 'HIPAA_OFFICER', 'PHI_READER')
             THEN acct_val
         WHEN CURRENT_ROLE() LIKE 'HOSPITAL_ADMIN_%'

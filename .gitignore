@@ -1,0 +1,249 @@
+# =============================================================================
+# .gitignore — Healthcare HIPAA RBAC & Audit Case Study
+# =============================================================================
+# ⚠️  CRITICAL SECURITY NOTE:
+#   This repository must NEVER contain:
+#   - Real patient data (PHI)
+#   - Snowflake account credentials
+#   - API keys, secrets, or tokens
+#   - Production IP addresses or network configurations
+#   - Real hospital names mapped to actual environments
+#
+#   If you accidentally commit sensitive data, assume it is compromised.
+#   Rotate all credentials immediately and contact the security team.
+# =============================================================================
+
+
+# =============================================================================
+# CREDENTIALS & SECRETS — NEVER COMMIT THESE
+# =============================================================================
+.env
+.env.*
+*.env
+secrets/
+credentials/
+*.pem
+*.key
+*.p8
+*.pfx
+*.p12
+*.crt
+*.cer
+config/production.yaml
+config/prod.yaml
+snowflake_config.json
+snowflake_credentials.json
+profiles.yml                     # dbt profiles — contains account credentials
+~/.dbt/profiles.yml
+
+# Snowflake connection files
+connection.toml
+snowsql_config
+.snowsql/
+
+
+# =============================================================================
+# PHI DATA — ABSOLUTELY NEVER COMMIT
+# =============================================================================
+*.csv
+*.tsv
+*.xlsx
+*.xls
+data/
+sample_data/
+test_data/
+phi/
+patient_data/
+# Exception: empty placeholder files are OK
+!data/.gitkeep
+!sample_data/.gitkeep
+
+
+# =============================================================================
+# PYTHON
+# =============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.venv/
+venv/
+ENV/
+env/
+.python-version
+
+# Jupyter Notebooks (may contain query output with PHI)
+.ipynb_checkpoints
+*.ipynb
+
+# pyc files
+*.pyc
+
+
+# =============================================================================
+# NODE.JS (if using JS-based policy tooling)
+# =============================================================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+.npm
+
+
+# =============================================================================
+# TERRAFORM (if used for Snowflake infrastructure)
+# =============================================================================
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+terraform.tfvars        # May contain Snowflake credentials
+*.tfvars
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+
+# =============================================================================
+# dbt
+# =============================================================================
+target/
+dbt_packages/
+logs/
+# profiles.yml is already covered above
+
+
+# =============================================================================
+# IDE & EDITOR FILES
+# =============================================================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+.project
+.classpath
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+
+# =============================================================================
+# OPERATING SYSTEM
+# =============================================================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+
+# =============================================================================
+# LOGS — May contain sensitive query output or error messages with PHI
+# =============================================================================
+*.log
+logs/
+*.log.*
+snowsql.log
+pipeline_run_*.log
+
+
+# =============================================================================
+# QUERY RESULTS & EXPORTS
+# =============================================================================
+# These file types may contain PHI if exported from Snowflake queries
+results/
+exports/
+output/
+query_results/
+*.parquet
+*.avro
+*.orc
+# Exception: test fixtures using synthetic (fake) data
+!tests/fixtures/
+
+
+# =============================================================================
+# DEPLOYMENT ARTIFACTS
+# =============================================================================
+dist/
+build/
+*.zip
+*.tar.gz
+*.tar
+deployed/
+release/
+
+
+# =============================================================================
+# CI/CD
+# =============================================================================
+.github/secrets/          # Should use GitHub Secrets — not files
+.circleci/config.local.yml
+
+
+# =============================================================================
+# AUDIT LOGS (local copies should never be in version control)
+# =============================================================================
+audit_exports/
+compliance_reports/
+*.audit
+
+
+# =============================================================================
+# TEMPORARY FILES
+# =============================================================================
+tmp/
+temp/
+.tmp/
+*.tmp
+*.bak
+*.backup
+*.orig
+
+
+# =============================================================================
+# DOCUMENTATION BUILD
+# =============================================================================
+docs/_build/
+docs/site/
+site/
+
+
+# =============================================================================
+# PERSONAL / INTERVIEW PREP FILES — NEVER COMMIT TO PUBLIC REPO
+# These are for local use only. Pushing these to GitHub gives a poor
+# impression to clients and HR reviewers.
+# =============================================================================
+marathi-summary.md
+*-summary.md
+interview-prep/
+personal-notes/
+*.interview.md

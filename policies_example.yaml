@@ -1,0 +1,539 @@
+# =============================================================================
+# FILE: policies_example.yaml
+# PURPOSE: Policy-as-Code configuration for Healthcare HIPAA Platform
+# AUTHOR: Security Architecture Team
+# VERSION: 2.0
+#
+# DESCRIPTION:
+#   This YAML file defines the desired state of all security policies,
+#   role mappings, and hospital configurations. It is consumed by the
+#   policy deployment pipeline (GitHub Actions + SnowSQL CLI) to
+#   ensure policies stay in sync with the codebase.
+#
+#   PIPELINE FLOW:
+#     1. PR raised with changes to this file
+#     2. GitHub Actions runs validation (check YAML syntax, required fields)
+#     3. JIRA ticket reference is required for any PHI policy change
+#     4. Security team reviews and approves PR
+#     5. Merge to main triggers automated deployment to PROD
+#     6. Post-deploy: validation_queries.sql runs automatically
+#
+#   IMMUTABILITY NOTE:
+#     Changes to audit_tables section require separate approval by HIPAA Officer.
+#     Any change that weakens a masking policy (e.g., showing more PHI to more roles)
+#     triggers an automatic PagerDuty alert to the CISO.
+#
+# LESSON LEARNED:
+#   Before policy-as-code, masking policies were modified manually via Snowsight.
+#   We had an incident where a developer temporarily unmasked SSNs in QA to debug
+#   a join issue — and forgot to re-apply the policy. The unmasked table was
+#   accessible for 4 days before the next audit check caught it.
+#   With policy-as-code, any drift from the YAML definition auto-triggers an alert.
+# =============================================================================
+
+version: "2.0"
+environment: production
+last_updated: "2024-01-15"
+updated_by: "security_team"
+change_ticket: "CHG0005001"
+
+# =============================================================================
+# GLOBAL METADATA
+# =============================================================================
+metadata:
+  organization: "Midwest Health Network"
+  snowflake_account: "${SF_ACCOUNT}"           # Injected from GitHub Secrets
+  compliance_frameworks:
+    - HIPAA
+    - SOC2_TYPE2
+    - HITRUST_CSF_V11
+  phi_record_count_approx: 8_000_000
+  hospital_count: 12
+  audit_contact: "hipaa-officer@mwhealthnet.org"
+  next_access_review: "2024-04-01"
+
+
+# =============================================================================
+# WAREHOUSES
+# =============================================================================
+warehouses:
+  phi_wh:
+    size: SMALL
+    auto_suspend_seconds: 60
+    auto_resume: true
+    allowed_roles:
+      - HIPAA_OFFICER
+      - PHI_READER
+    comment: "PHI processing — monitored for unusual usage"
+
+  analytics_wh:
+    size: MEDIUM
+    auto_suspend_seconds: 300
+    auto_resume: true
+    allowed_roles:
+      - ANALYST_BASE          # Inherited by all ANALYST_* and HOSPITAL_ADMIN_* roles
+      - DS_ROLE
+    comment: "Analytics workloads — BI tools connect here"
+
+  etl_wh:
+    size: LARGE
+    auto_suspend_seconds: 120
+    auto_resume: true
+    allowed_roles:
+      - DBT_ROLE
+      - PIPELINE_ROLE
+    comment: "ETL processing — dedicated to pipeline service accounts"
+
+  audit_wh:
+    size: XSMALL
+    auto_suspend_seconds: 60
+    auto_resume: true
+    allowed_roles:
+      - AUDIT_READER
+      - AUDIT_WRITER
+      - SECURITYADMIN
+    comment: "Audit and compliance queries — isolated from analytics workloads"
+
+
+# =============================================================================
+# DATABASES
+# =============================================================================
+databases:
+  RAW_DB:
+    owner: SECURITYADMIN          # CRITICAL: Not SYSADMIN
+    phi_zone: true
+    data_retention_days: 30
+    comment: "RAW PHI Zone — Source system ingestion landing zone"
+
+  CLEANSED_DB:
+    owner: SECURITYADMIN          # CRITICAL: Not SYSADMIN
+    phi_zone: true
+    data_retention_days: 30
+    comment: "Cleansed PHI Zone — DDM and Row-Access enforced"
+
+  MARTS_DB:
+    owner: SYSADMIN
+    phi_zone: false
+    data_retention_days: 14
+    comment: "Analytics Zone — De-identified data for broad analyst access"
+
+  PHI_POLICIES_DB:
+    owner: SECURITYADMIN
+    phi_zone: false               # Contains policy definitions, not PHI
+    data_retention_days: 30
+    comment: "Security policy objects and mapping tables"
+
+  AUDIT_DB:
+    owner: SECURITYADMIN
+    phi_zone: false               # Contains metadata, not PHI
+    data_retention_days: 90       # 90 days in Snowflake, then S3 WORM for 7 years
+    immutable: true               # No DELETE/UPDATE/TRUNCATE grants
+    comment: "Immutable audit logs — HIPAA §164.312(b)"
+
+
+# =============================================================================
+# MASKING POLICIES
+# =============================================================================
+masking_policies:
+  mask_ssn:
+    database: PHI_POLICIES_DB
+    schema: PHI
+    input_type: STRING
+    return_type: STRING
+    phi_type: SSN
+    hipaa_identifier: direct
+    description: "Social Security Number masking — FPE tokenization for join consistency"
+    exemptions:
+      full_visibility:
+        - ACCOUNTADMIN
+        - HIPAA_OFFICER
+        - PHI_READER
+      partial_visibility:
+        - pattern: "HOSPITAL_ADMIN_%"
+          mask_type: last_4_digits      # 'XXX-XX-6789'
+    default_mask: "XXX-XX-XXXX"
+    null_for_roles:
+      - DS_ROLE
+
+  mask_dob:
+    database: PHI_POLICIES_DB
+    schema: PHI
+    input_type: DATE
+    return_type: DATE
+    phi_type: DATE_OF_BIRTH
+    hipaa_identifier: direct
+    description: "Date of birth masking — year only for analysts, 90+ cap for data scientists"
+    exemptions:
+      full_visibility:
+        - ACCOUNTADMIN
+        - HIPAA_OFFICER
+        - PHI_READER
+        - pattern: "HOSPITAL_ADMIN_%"  # Treating providers need full DOB
+    partial_visibility:
+      analyst_roles:
+        - ANALYST_CLINICAL
+        - ANALYST_REVENUE
+        - DS_ROLE
+      mask_type: year_only
+      ds_additional_rule: cap_90_plus_at_1930   # HIPAA §164.514(b)(2)(i)
+    default_mask: NULL
+
+  mask_patient_name:
+    database: PHI_POLICIES_DB
+    schema: PHI
+    input_type: STRING
+    return_type: STRING
+    phi_type: PATIENT_NAME
+    hipaa_identifier: direct
+    description: "Patient name masking — first initial only for analysts"
+    exemptions:
+      full_visibility:
+        - ACCOUNTADMIN
+        - HIPAA_OFFICER
+        - PHI_READER
+        - pattern: "HOSPITAL_ADMIN_%"
+    partial_visibility:
+      analyst_roles:
+        - ANALYST_CLINICAL
+        - ANALYST_REVENUE
+      mask_type: first_initial_only      # 'J***'
+    default_mask: "***"
+
+  mask_mrn:
+    database: PHI_POLICIES_DB
+    schema: PHI
+    input_type: STRING
+    return_type: STRING
+    phi_type: MEDICAL_RECORD_NUMBER
+    hipaa_identifier: direct
+    description: "Medical Record Number — deterministic token for join-safe masking"
+    exemptions:
+      full_visibility:
+        - ACCOUNTADMIN
+        - HIPAA_OFFICER
+        - PHI_READER
+        - pattern: "HOSPITAL_ADMIN_%"
+    tokenization:
+      roles:
+        - ANALYST_CLINICAL
+        - ANALYST_REVENUE
+        - DS_ROLE
+      method: SHA2_WITH_SALT
+      salt_secret: "MRN_SALT_SECRET"    # Stored in Snowflake Secret, not here
+      prefix: "MRN-"
+      length: 12
+    default_mask: "***"
+
+  mask_phone:
+    database: PHI_POLICIES_DB
+    schema: PHI
+    input_type: STRING
+    return_type: STRING
+    phi_type: PHONE_NUMBER
+    hipaa_identifier: direct
+    exemptions:
+      full_visibility:
+        - ACCOUNTADMIN
+        - HIPAA_OFFICER
+        - PHI_READER
+        - pattern: "HOSPITAL_ADMIN_%"   # Hospital staff contact patients
+    default_mask: "***-***-****"
+
+  mask_email:
+    database: PHI_POLICIES_DB
+    schema: PHI
+    input_type: STRING
+    return_type: STRING
+    phi_type: EMAIL_ADDRESS
+    hipaa_identifier: direct
+    exemptions:
+      full_visibility:
+        - ACCOUNTADMIN
+        - HIPAA_OFFICER
+        - PHI_READER
+        - pattern: "HOSPITAL_ADMIN_%"
+    default_mask: "***@***.***"
+
+  mask_address_street:
+    database: PHI_POLICIES_DB
+    schema: PHI
+    input_type: STRING
+    return_type: STRING
+    phi_type: STREET_ADDRESS
+    hipaa_identifier: direct
+    exemptions:
+      full_visibility:
+        - ACCOUNTADMIN
+        - HIPAA_OFFICER
+        - PHI_READER
+        - pattern: "HOSPITAL_ADMIN_%"
+    default_mask: "*** REDACTED ***"
+
+  mask_zip_code:
+    database: PHI_POLICIES_DB
+    schema: PHI
+    input_type: STRING
+    return_type: STRING
+    phi_type: ZIP_CODE
+    hipaa_identifier: direct
+    description: "ZIP code — first 3 digits only per HIPAA Safe Harbor §164.514(b)(2)(i)"
+    exemptions:
+      full_visibility:
+        - ACCOUNTADMIN
+        - HIPAA_OFFICER
+        - PHI_READER
+        - pattern: "HOSPITAL_ADMIN_%"
+    partial_visibility:
+      analyst_roles:
+        - ANALYST_CLINICAL
+        - ANALYST_REVENUE
+        - DS_ROLE
+      mask_type: first_3_digits   # '452**'
+    default_mask: "00000"
+
+  mask_diagnosis_code:
+    database: PHI_POLICIES_DB
+    schema: PHI
+    input_type: STRING
+    return_type: STRING
+    phi_type: DIAGNOSIS_CODE
+    hipaa_identifier: quasi_identifier
+    description: "ICD-10 code — category level only (3 chars) per re-identification risk analysis"
+    exemptions:
+      full_visibility:
+        - ACCOUNTADMIN
+        - HIPAA_OFFICER
+        - PHI_READER
+        - pattern: "HOSPITAL_ADMIN_%"
+    partial_visibility:
+      analyst_roles:
+        - ANALYST_CLINICAL
+        - ANALYST_REVENUE
+        - DS_ROLE
+      mask_type: icd10_category_3chars   # 'E11' not 'E11.65'
+    default_mask: "***"
+
+
+# =============================================================================
+# ROW ACCESS POLICIES
+# =============================================================================
+row_access_policies:
+  patient_hospital_isolation:
+    database: PHI_POLICIES_DB
+    schema: PHI
+    description: "Hospital-level isolation — each role sees only their mapped hospitals"
+    bypass_roles:
+      - ACCOUNTADMIN
+      - SECURITYADMIN
+      - HIPAA_OFFICER
+      - PHI_READER
+    mapping_table: "PHI_POLICIES_DB.PHI.hospital_role_map"
+    apply_to_tables:
+      - database: CLEANSED_DB
+        schema: CLINICAL
+        table: patients
+        column: hospital_id
+      - database: CLEANSED_DB
+        schema: BILLING
+        table: claims
+        column: hospital_id
+      - database: RAW_DB
+        schema: EHR
+        table: patient_events
+        column: hospital_id
+    performance_requirements:
+      cluster_by_column: hospital_id    # MANDATORY — see README failure story
+      min_clustering_depth: 3
+
+
+# =============================================================================
+# HOSPITAL ROLE MAPPINGS
+# =============================================================================
+hospital_role_mappings:
+  - snowflake_role: HOSPITAL_ADMIN_H01
+    hospital_id: H01
+    hospital_name: "St. Mary's — Cincinnati, OH"
+    effective_from: "2024-01-01"
+    effective_to: null              # null = no end date
+    ticket_ref: CHG0001001
+
+  - snowflake_role: HOSPITAL_ADMIN_H02
+    hospital_id: H02
+    hospital_name: "Mercy Medical — Dayton, OH"
+    effective_from: "2024-01-01"
+    effective_to: null
+    ticket_ref: CHG0001002
+
+  - snowflake_role: HOSPITAL_ADMIN_H03
+    hospital_id: H03
+    hospital_name: "University Hospitals — Cleveland, OH"
+    effective_from: "2024-01-01"
+    effective_to: null
+    ticket_ref: CHG0001003
+
+  - snowflake_role: HOSPITAL_ADMIN_H04
+    hospital_id: H04
+    hospital_name: "OhioHealth — Columbus, OH"
+    effective_from: "2024-01-01"
+    effective_to: null
+    ticket_ref: CHG0001004
+
+  - snowflake_role: HOSPITAL_ADMIN_H05
+    hospital_id: H05
+    hospital_name: "ProMedica — Toledo, OH"
+    effective_from: "2024-01-01"
+    effective_to: null
+    ticket_ref: CHG0001005
+
+  - snowflake_role: HOSPITAL_ADMIN_H06
+    hospital_id: H06
+    hospital_name: "Summa Health — Akron, OH"
+    effective_from: "2024-01-01"
+    effective_to: null
+    ticket_ref: CHG0001006
+
+  - snowflake_role: HOSPITAL_ADMIN_H07
+    hospital_id: H07
+    hospital_name: "Indiana University Health — Indianapolis, IN"
+    effective_from: "2024-01-01"
+    effective_to: null
+    ticket_ref: CHG0001007
+
+  - snowflake_role: HOSPITAL_ADMIN_H08
+    hospital_id: H08
+    hospital_name: "Parkview Health — Fort Wayne, IN"
+    effective_from: "2024-01-01"
+    effective_to: null
+    ticket_ref: CHG0001008
+
+  - snowflake_role: HOSPITAL_ADMIN_H09
+    hospital_id: H09
+    hospital_name: "Deaconess — Evansville, IN"
+    effective_from: "2024-01-01"
+    effective_to: null
+    ticket_ref: CHG0001009
+
+  - snowflake_role: HOSPITAL_ADMIN_H10
+    hospital_id: H10
+    hospital_name: "Norton Healthcare — Louisville, KY"
+    effective_from: "2024-01-01"
+    effective_to: null
+    ticket_ref: CHG0001010
+
+  - snowflake_role: HOSPITAL_ADMIN_H11
+    hospital_id: H11
+    hospital_name: "UK HealthCare — Lexington, KY"
+    effective_from: "2024-01-01"
+    effective_to: null
+    ticket_ref: CHG0001011
+
+  - snowflake_role: HOSPITAL_ADMIN_H12
+    hospital_id: H12
+    hospital_name: "Michigan Medicine — Ann Arbor, MI"
+    effective_from: "2024-01-01"
+    effective_to: null
+    ticket_ref: CHG0001012
+
+
+# =============================================================================
+# NETWORK POLICIES
+# =============================================================================
+network_policies:
+  hipaa_production_policy:
+    environment: production
+    apply_at: account_level
+    review_cycle: quarterly
+    next_review: "2024-04-15"
+    allowed_ip_ranges:
+      - cidr: "10.1.0.0/16"
+        description: "H01 Cincinnati campus"
+      - cidr: "10.2.0.0/16"
+        description: "H02 Dayton campus"
+      - cidr: "10.3.0.0/16"
+        description: "H03 Cleveland campus"
+      - cidr: "10.4.0.0/16"
+        description: "H04 Columbus campus"
+      - cidr: "10.5.0.0/16"
+        description: "H05 Toledo campus"
+      - cidr: "10.6.0.0/16"
+        description: "H06 Akron campus"
+      - cidr: "10.7.0.0/16"
+        description: "H07 Indianapolis campus"
+      - cidr: "10.8.0.0/16"
+        description: "H08 Fort Wayne campus"
+      - cidr: "10.9.0.0/16"
+        description: "H09 Evansville campus"
+      - cidr: "10.10.0.0/16"
+        description: "H10 Louisville campus"
+      - cidr: "10.11.0.0/16"
+        description: "H11 Lexington campus"
+      - cidr: "10.12.0.0/16"
+        description: "H12 Ann Arbor campus"
+      - cidr: "172.16.100.0/24"
+        description: "Corporate VPN — data engineering team"
+        review_required: true        # Review contractors on this subnet quarterly
+      - cidr: "172.16.200.0/28"
+        description: "Break-glass emergency access"
+        monitoring: enabled          # Any use from this range triggers PagerDuty alert
+
+
+# =============================================================================
+# AUDIT CONFIGURATION
+# =============================================================================
+audit:
+  phi_access_log:
+    database: AUDIT_DB
+    schema: PUBLIC
+    table: phi_access_log
+    retention_snowflake_days: 90
+    retention_s3_years: 7
+    s3_bucket: "${AUDIT_S3_BUCKET}"     # Injected from deployment secrets
+    s3_prefix: "phi_access_log"
+    s3_object_lock_mode: COMPLIANCE     # S3 Object Lock in COMPLIANCE mode = WORM
+    archival_schedule: "0 3 1 * *"     # Monthly, 1st at 3 AM UTC
+
+  dlp_monitoring:
+    schedule: "*/15 * * * *"           # Every 15 minutes
+    warehouse: AUDIT_WH
+    thresholds:
+      bulk_export_rows: 50000           # Rows in 15 minutes = flag as suspicious
+      off_hours_start: 22               # 10 PM (hospital local time)
+      off_hours_end: 6                  # 6 AM
+      min_queries_for_off_hours_flag: 3 # Only flag if 3+ queries (not just 1 login test)
+    alerts:
+      high_severity:
+        - channel: pagerduty
+          team: security_oncall
+      medium_severity:
+        - channel: slack
+          channel_id: "#hipaa-security-alerts"
+      low_severity:
+        - channel: email
+          recipients:
+            - "hipaa-officer@mwhealthnet.org"
+
+  validation:
+    schedule: "0 6 * * 1"             # Every Monday at 6 AM UTC
+    warehouse: AUDIT_WH
+    alert_on_failure: true
+    alert_recipients:
+      - "hipaa-officer@mwhealthnet.org"
+      - "data-platform-lead@mwhealthnet.org"
+
+
+# =============================================================================
+# DEPLOYMENT PIPELINE CONFIGURATION
+# =============================================================================
+deployment:
+  require_ticket_for_phi_changes: true
+  require_two_approvals_for_hipaa_officer_changes: true
+  auto_rollback_on_validation_failure: true
+  post_deploy_validation_script: "sql/validation_queries.sql"
+  environments:
+    production:
+      snowflake_account_env_var: SF_PROD_ACCOUNT
+      requires_cab_approval: true
+    qa:
+      snowflake_account_env_var: SF_QA_ACCOUNT
+      requires_cab_approval: false
+      uses_synthetic_data: true       # QA never uses real PHI — synthetic data only

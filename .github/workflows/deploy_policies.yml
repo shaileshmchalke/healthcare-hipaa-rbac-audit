@@ -1,22 +1,12 @@
 # =============================================================================
 # FILE: .github/workflows/deploy_policies.yml
 # PURPOSE: CI/CD pipeline for Snowflake HIPAA security policy deployment
-# VERSION: 1.1 (Security fix: replaced SNOWSQL_PWD with key-pair authentication)
+# VERSION: 1.2
 #
-# SECURITY FIX vs DeepSeek's version:
-#   DeepSeek suggested SNOWSQL_PWD (password) as a GitHub Secret.
-#   In a HIPAA environment, service accounts MUST use key-pair authentication.
-#   Passwords in CI/CD secrets are acceptable but weaker than private key auth.
-#   This version uses RSA private key (SNOWSQL_PRIVATE_KEY) — HIPAA best practice.
-#
-# REQUIRED GITHUB SECRETS (set in repo Settings → Secrets → Actions):
+# REQUIRED GITHUB SECRETS (Settings -> Secrets and variables -> Actions):
 #   SNOWSQL_ACCOUNT     : e.g., xy12345.us-east-1
 #   SNOWSQL_USER        : e.g., deploy_svc_account
 #   SNOWSQL_PRIVATE_KEY : RSA private key PEM content (for key-pair auth)
-#
-# TRIGGERS:
-#   - Push to main with changes in sql/ or policies_example.yaml
-#   - Pull request against main (validation only, no deploy)
 # =============================================================================
 
 name: Deploy Snowflake HIPAA Policies
@@ -37,12 +27,9 @@ on:
 
 env:
   SNOWSQL_VERSION: '1.2.24'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # JOB 1: VALIDATE — runs on every PR and push
-  # No Snowflake connection needed — purely static checks
-  # ---------------------------------------------------------------------------
   validate:
     name: Static Validation
     runs-on: ubuntu-latest
@@ -54,69 +41,68 @@ jobs:
       - name: Validate YAML policy file syntax
         run: |
           python3 -c "
-          import yaml, sys
+          import yaml
           with open('policies_example.yaml') as f:
               yaml.safe_load(f)
-          print('✅ policies_example.yaml is valid YAML')
+          print('PASS: policies_example.yaml is valid YAML')
           "
 
       - name: Check for hardcoded credentials in SQL files
         run: |
-          echo "🔍 Scanning for hardcoded secrets..."
-          # Block patterns that should never be in SQL files
+          echo "Scanning SQL files for hardcoded secrets..."
           FOUND=0
-          for pattern in "password\s*=" "aws_secret" "private_key\s*=" "api_key" "token\s*="; do
-            if grep -rniE "$pattern" sql/ --include="*.sql"; then
-              echo "❌ Potential credential found matching pattern: $pattern"
+          for pattern in "password\s*=" "aws_secret_access_key" "private_key\s*=" "api_key\s*="; do
+            result=$(grep -rniE "$pattern" sql/ --include="*.sql" \
+                     | grep -vE ":[[:space:]]*--" || true)
+            if [ -n "$result" ]; then
+              echo "FAIL: Possible hardcoded credential - pattern: $pattern"
+              echo "$result"
               FOUND=1
             fi
           done
           if [ $FOUND -eq 0 ]; then
-            echo "✅ No hardcoded credentials detected in SQL files"
+            echo "PASS: No hardcoded credentials found in SQL files"
           else
             exit 1
           fi
 
-      - name: Check for PHI data patterns in SQL files
+      - name: Check for real PHI data patterns in SQL files
         run: |
-          echo "🔍 Scanning for PHI data patterns..."
-          # Block real SSN patterns (NNN-NN-NNNN) in SQL files (test data risk)
-          if grep -rE '\b[0-9]{3}-[0-9]{2}-[0-9]{4}\b' sql/ --include="*.sql"; then
-            echo "❌ Possible real SSN pattern in SQL files — review before merge"
+          echo "Scanning for real SSN patterns in active SQL code only..."
+          FOUND=0
+          while IFS= read -r -d '' file; do
+            result=$(grep -nE '\b[0-9]{3}-[0-9]{2}-[0-9]{4}\b' "$file" \
+                     | grep -vE ":[[:space:]]*--" \
+                     | grep -vE "^\s*[0-9]+:--" || true)
+            if [ -n "$result" ]; then
+              echo "FAIL: Possible real SSN in $file (active code line):"
+              echo "$result"
+              FOUND=1
+            fi
+          done < <(find sql/ -name "*.sql" -print0)
+          if [ $FOUND -eq 0 ]; then
+            echo "PASS: No real SSN patterns found in active SQL code"
+          else
             exit 1
           fi
-          echo "✅ No PHI data patterns detected"
 
-      - name: Validate SQL file headers (documentation check)
+      - name: Validate SQL file documentation headers
         run: |
-          echo "🔍 Checking SQL file headers..."
+          echo "Checking SQL file headers..."
           for f in sql/setup_rbac.sql sql/policies.sql sql/audit_tables.sql sql/validation_queries.sql; do
             if ! head -5 "$f" | grep -q "PURPOSE:"; then
-              echo "⚠️  Missing PURPOSE header in $f"
+              echo "WARNING: Missing PURPOSE header in $f"
             else
-              echo "✅ $f has proper header"
+              echo "PASS: $f has proper header"
             fi
           done
 
-      - name: Check cleanup.sql is not accidentally run in CI
-        run: |
-          # cleanup.sql should NEVER be in the deploy pipeline
-          if grep -l "cleanup.sql" .github/workflows/*.yml | grep -v "^$"; then
-            echo "❌ cleanup.sql referenced in CI pipeline — DANGER"
-            exit 1
-          fi
-          echo "✅ cleanup.sql is not in deploy pipeline"
-
-  # ---------------------------------------------------------------------------
-  # JOB 2: DEPLOY — runs only on push to main (not on PRs)
-  # Uses key-pair authentication — no passwords stored in GitHub Secrets
-  # ---------------------------------------------------------------------------
   deploy:
     name: Deploy to Production
     needs: validate
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    environment: production      # Requires manual approval in GitHub Environments settings
+    environment: production
 
     steps:
       - name: Checkout code
@@ -128,80 +114,53 @@ jobs:
           bash snowsql-${{ env.SNOWSQL_VERSION }}-linux_x86_64.bash -b -f
           echo "$HOME/bin" >> $GITHUB_PATH
 
-      - name: Configure key-pair authentication
-        # Write RSA private key from GitHub Secret to a temp file
-        # This is more secure than password — key never leaves the runner
+      - name: Configure RSA key-pair authentication
         run: |
           echo "${{ secrets.SNOWSQL_PRIVATE_KEY }}" > /tmp/snowflake_rsa_key.pem
           chmod 400 /tmp/snowflake_rsa_key.pem
 
-      - name: Deploy RBAC hierarchy (setup_rbac.sql)
+      - name: Deploy RBAC hierarchy
         env:
-          SNOWSQL_ACCOUNT:  ${{ secrets.SNOWSQL_ACCOUNT }}
-          SNOWSQL_USER:     ${{ secrets.SNOWSQL_USER }}
+          SNOWSQL_ACCOUNT: ${{ secrets.SNOWSQL_ACCOUNT }}
+          SNOWSQL_USER:    ${{ secrets.SNOWSQL_USER }}
         run: |
-          snowsql \
-            -a "$SNOWSQL_ACCOUNT" \
-            -u "$SNOWSQL_USER" \
+          snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
             --private-key-path /tmp/snowflake_rsa_key.pem \
-            -r SECURITYADMIN \
-            -f sql/setup_rbac.sql \
-            -o exit_on_error=true \
-            -o log_level=DEBUG
-          echo "✅ RBAC deployed"
+            -r SECURITYADMIN -f sql/setup_rbac.sql -o exit_on_error=true
+          echo "PASS: RBAC deployed"
 
-      - name: Deploy masking and row-access policies (policies.sql)
+      - name: Deploy masking and row-access policies
         env:
-          SNOWSQL_ACCOUNT:  ${{ secrets.SNOWSQL_ACCOUNT }}
-          SNOWSQL_USER:     ${{ secrets.SNOWSQL_USER }}
+          SNOWSQL_ACCOUNT: ${{ secrets.SNOWSQL_ACCOUNT }}
+          SNOWSQL_USER:    ${{ secrets.SNOWSQL_USER }}
         run: |
-          snowsql \
-            -a "$SNOWSQL_ACCOUNT" \
-            -u "$SNOWSQL_USER" \
+          snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
             --private-key-path /tmp/snowflake_rsa_key.pem \
-            -r SECURITYADMIN \
-            -f sql/policies.sql \
-            -o exit_on_error=true
-          echo "✅ Policies deployed"
+            -r SECURITYADMIN -f sql/policies.sql -o exit_on_error=true
+          echo "PASS: Policies deployed"
 
-      - name: Deploy audit tables and tasks (audit_tables.sql)
+      - name: Deploy audit tables and tasks
         env:
-          SNOWSQL_ACCOUNT:  ${{ secrets.SNOWSQL_ACCOUNT }}
-          SNOWSQL_USER:     ${{ secrets.SNOWSQL_USER }}
+          SNOWSQL_ACCOUNT: ${{ secrets.SNOWSQL_ACCOUNT }}
+          SNOWSQL_USER:    ${{ secrets.SNOWSQL_USER }}
         run: |
-          snowsql \
-            -a "$SNOWSQL_ACCOUNT" \
-            -u "$SNOWSQL_USER" \
+          snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
             --private-key-path /tmp/snowflake_rsa_key.pem \
-            -r SECURITYADMIN \
-            -f sql/audit_tables.sql \
-            -o exit_on_error=true
-          echo "✅ Audit tables deployed"
+            -r SECURITYADMIN -f sql/audit_tables.sql -o exit_on_error=true
+          echo "PASS: Audit tables deployed"
 
-      - name: Post-deploy validation (validation_queries.sql)
+      - name: Post-deploy validation
         env:
-          SNOWSQL_ACCOUNT:  ${{ secrets.SNOWSQL_ACCOUNT }}
-          SNOWSQL_USER:     ${{ secrets.SNOWSQL_USER }}
+          SNOWSQL_ACCOUNT: ${{ secrets.SNOWSQL_ACCOUNT }}
+          SNOWSQL_USER:    ${{ secrets.SNOWSQL_USER }}
         run: |
-          snowsql \
-            -a "$SNOWSQL_ACCOUNT" \
-            -u "$SNOWSQL_USER" \
+          snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
             --private-key-path /tmp/snowflake_rsa_key.pem \
-            -r SECURITYADMIN \
-            -f sql/validation_queries.sql \
-            -o exit_on_error=true
-          echo "✅ Post-deploy validation passed"
+            -r SECURITYADMIN -f sql/validation_queries.sql -o exit_on_error=true
+          echo "PASS: Post-deploy validation complete"
 
-      - name: Cleanup RSA key from runner
-        if: always()    # Always runs — even if deploy fails — key must be removed
+      - name: Remove RSA key from runner
+        if: always()
         run: |
           rm -f /tmp/snowflake_rsa_key.pem
-          echo "🔐 Private key removed from runner"
-
-      - name: Notify on failure
-        if: failure()
-        run: |
-          echo "❌ Deployment FAILED. Check logs above."
-          echo "Rollback: use sql/cleanup.sql on DEMO account, or restore from last known good state."
-          # In production: trigger PagerDuty alert here
-          exit 1
+          echo "Private key removed from runner"

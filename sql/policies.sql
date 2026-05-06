@@ -84,7 +84,8 @@ VALUES
 -- POLICY 1: Social Security Number (SSN)
 -- Most sensitive PHI field. Format: XXX-XX-XXXX
 -- LESSON LEARNED: We originally used SHA-256 here. Broke cross-table joins because
---   billing table hashed '123456789' while EHR hashed '123-45-6789'.
+--   billing table hashed without dashes while EHR hashed with dashes.
+--   Same patient produced two different hash values — zero rows on every join.
 --   See README "What Didn't Work Initially" for full story.
 --   Solution: Format-Preserving Encryption via external tokenization.
 --   In this reference implementation, we simulate FPE with a deterministic mask.

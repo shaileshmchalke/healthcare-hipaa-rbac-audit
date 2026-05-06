@@ -199,7 +199,7 @@ SELECT
     patient_zip
 FROM CLEANSED_DB.CLINICAL.patients
 LIMIT 5;
--- Expected: Real names, real SSNs (e.g., '123-45-6789'), real DOBs, real MRNs
+-- Expected: Real names, real SSN values (unmasked), real DOBs, real MRNs
 */
 
 -- As HOSPITAL_ADMIN_H01: Should see partial masking

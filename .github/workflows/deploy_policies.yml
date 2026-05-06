@@ -1,12 +1,18 @@
 # =============================================================================
 # FILE: .github/workflows/deploy_policies.yml
 # PURPOSE: CI/CD pipeline for Snowflake HIPAA security policy deployment
-# VERSION: 1.2
+# VERSION: 1.3
 #
-# REQUIRED GITHUB SECRETS (Settings -> Secrets and variables -> Actions):
-#   SNOWSQL_ACCOUNT     : e.g., xy12345.us-east-1
-#   SNOWSQL_USER        : e.g., deploy_svc_account
-#   SNOWSQL_PRIVATE_KEY : RSA private key PEM content (for key-pair auth)
+# NOTE FOR PORTFOLIO / CASE STUDY:
+#   The "validate" job runs automatically on every push — no secrets needed.
+#   The "deploy" job is MANUAL-ONLY (workflow_dispatch) and requires real
+#   Snowflake credentials configured as GitHub Secrets.
+#
+#   To run deploy in a real environment, configure these GitHub Secrets:
+#   Settings -> Secrets and variables -> Actions -> New repository secret
+#     SNOWSQL_ACCOUNT     : e.g., xy12345.us-east-1
+#     SNOWSQL_USER        : e.g., deploy_svc_account
+#     SNOWSQL_PRIVATE_KEY : RSA private key PEM content
 # =============================================================================
 
 name: Deploy Snowflake HIPAA Policies
@@ -24,12 +30,28 @@ on:
     paths:
       - 'sql/**.sql'
       - 'policies_example.yaml'
+  # Manual trigger only for actual Snowflake deployment
+  workflow_dispatch:
+    inputs:
+      deploy_target:
+        description: 'Deployment target (qa or production)'
+        required: true
+        default: 'qa'
+        type: choice
+        options:
+          - qa
+          - production
 
 env:
   SNOWSQL_VERSION: '1.2.24'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # JOB 1: VALIDATE
+  # Runs automatically on every push and PR.
+  # No Snowflake account or secrets needed.
+  # ---------------------------------------------------------------------------
   validate:
     name: Static Validation
     runs-on: ubuntu-latest
@@ -96,17 +118,52 @@ jobs:
               echo "PASS: $f has proper header"
             fi
           done
+          echo "Header validation complete."
 
+      - name: Summary
+        run: |
+          echo "================================================"
+          echo "Static Validation complete."
+          echo "All SQL files clean. YAML syntax valid."
+          echo "To deploy to Snowflake, use: Actions -> Deploy"
+          echo "Snowflake HIPAA Policies -> Run workflow"
+          echo "================================================"
+
+  # ---------------------------------------------------------------------------
+  # JOB 2: DEPLOY
+  # MANUAL ONLY — triggered via GitHub Actions UI (workflow_dispatch).
+  # Requires SNOWSQL_ACCOUNT, SNOWSQL_USER, SNOWSQL_PRIVATE_KEY secrets.
+  # Will NOT run automatically on push — only when manually triggered.
+  # ---------------------------------------------------------------------------
   deploy:
-    name: Deploy to Production
+    name: Deploy to Snowflake
     needs: validate
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    environment: production
+    # IMPORTANT: This job runs ONLY when manually triggered via workflow_dispatch
+    # It will never run on push or pull_request — no accidental deployments
+    if: github.event_name == 'workflow_dispatch'
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Verify required secrets are present
+        run: |
+          if [ -z "${{ secrets.SNOWSQL_ACCOUNT }}" ]; then
+            echo "FAIL: SNOWSQL_ACCOUNT secret is not configured."
+            echo "Go to: Settings -> Secrets and variables -> Actions"
+            exit 1
+          fi
+          if [ -z "${{ secrets.SNOWSQL_USER }}" ]; then
+            echo "FAIL: SNOWSQL_USER secret is not configured."
+            exit 1
+          fi
+          if [ -z "${{ secrets.SNOWSQL_PRIVATE_KEY }}" ]; then
+            echo "FAIL: SNOWSQL_PRIVATE_KEY secret is not configured."
+            exit 1
+          fi
+          echo "PASS: All required secrets are configured."
+          echo "Target environment: ${{ github.event.inputs.deploy_target }}"
 
       - name: Install SnowSQL CLI
         run: |

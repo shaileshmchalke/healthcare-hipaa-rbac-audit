@@ -1,7 +1,7 @@
 ﻿# =============================================================================
 # FILE: .github/workflows/deploy_policies.yml
 # PURPOSE: CI/CD pipeline - Static validation only (portfolio project)
-# VERSION: 1.4
+# VERSION: 1.5
 # =============================================================================
 
 name: Deploy Snowflake HIPAA Policies
@@ -9,14 +9,8 @@ name: Deploy Snowflake HIPAA Policies
 on:
   push:
     branches: [ main ]
-    paths:
-      - 'sql/**.sql'
-      - 'policies_example.yaml'
   pull_request:
     branches: [ main ]
-    paths:
-      - 'sql/**.sql'
-      - 'policies_example.yaml'
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

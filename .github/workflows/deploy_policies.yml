@@ -1,13 +1,7 @@
-# =============================================================================
+﻿# =============================================================================
 # FILE: .github/workflows/deploy_policies.yml
-# PURPOSE: CI/CD pipeline for Snowflake HIPAA security policy deployment
+# PURPOSE: CI/CD pipeline - Static validation only (portfolio project)
 # VERSION: 1.4
-#
-# JOBS:
-#   1. validate  - runs on every push/PR (no secrets needed, no Snowflake needed)
-#   2. deploy    - DISABLED for portfolio/case study project
-#                  Enable by uncommenting workflow_dispatch trigger when you have
-#                  real Snowflake credentials configured as GitHub Secrets.
 # =============================================================================
 
 name: Deploy Snowflake HIPAA Policies
@@ -28,12 +22,6 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # JOB 1: VALIDATE
-  # Runs automatically on every push and PR.
-  # No Snowflake account or secrets needed.
-  # This is the only job that runs for this portfolio/case study project.
-  # ---------------------------------------------------------------------------
   validate:
     name: Static Validation
     runs-on: ubuntu-latest
@@ -109,19 +97,3 @@ jobs:
           echo "SQL files:  clean, no PHI, no hardcoded secrets"
           echo "YAML:       valid syntax"
           echo "================================================"
-
-  # ---------------------------------------------------------------------------
-  # JOB 2: DEPLOY (DISABLED - portfolio/case study project)
-  # To enable: add workflow_dispatch trigger above and uncomment below.
-  # Requires GitHub Secrets: SNOWSQL_ACCOUNT, SNOWSQL_USER, SNOWSQL_PRIVATE_KEY
-  # ---------------------------------------------------------------------------
-  # deploy:
-  #   name: Deploy to Snowflake
-  #   needs: validate
-  #   runs-on: ubuntu-latest
-  #   if: github.event_name == 'workflow_dispatch'
-  #   steps:
-  #     - name: Checkout code
-  #       uses: actions/checkout@v4
-  #     - name: Deploy
-  #       run: echo "Configure Snowflake secrets first - see README Quick Start"

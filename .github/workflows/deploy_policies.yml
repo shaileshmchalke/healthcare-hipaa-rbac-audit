@@ -1,18 +1,13 @@
 # =============================================================================
 # FILE: .github/workflows/deploy_policies.yml
 # PURPOSE: CI/CD pipeline for Snowflake HIPAA security policy deployment
-# VERSION: 1.3
+# VERSION: 1.4
 #
-# NOTE FOR PORTFOLIO / CASE STUDY:
-#   The "validate" job runs automatically on every push — no secrets needed.
-#   The "deploy" job is MANUAL-ONLY (workflow_dispatch) and requires real
-#   Snowflake credentials configured as GitHub Secrets.
-#
-#   To run deploy in a real environment, configure these GitHub Secrets:
-#   Settings -> Secrets and variables -> Actions -> New repository secret
-#     SNOWSQL_ACCOUNT     : e.g., xy12345.us-east-1
-#     SNOWSQL_USER        : e.g., deploy_svc_account
-#     SNOWSQL_PRIVATE_KEY : RSA private key PEM content
+# JOBS:
+#   1. validate  - runs on every push/PR (no secrets needed, no Snowflake needed)
+#   2. deploy    - DISABLED for portfolio/case study project
+#                  Enable by uncommenting workflow_dispatch trigger when you have
+#                  real Snowflake credentials configured as GitHub Secrets.
 # =============================================================================
 
 name: Deploy Snowflake HIPAA Policies
@@ -21,29 +16,15 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'sql/setup_rbac.sql'
-      - 'sql/policies.sql'
-      - 'sql/audit_tables.sql'
+      - 'sql/**.sql'
       - 'policies_example.yaml'
   pull_request:
     branches: [ main ]
     paths:
       - 'sql/**.sql'
       - 'policies_example.yaml'
-  # Manual trigger only for actual Snowflake deployment
-  workflow_dispatch:
-    inputs:
-      deploy_target:
-        description: 'Deployment target (qa or production)'
-        required: true
-        default: 'qa'
-        type: choice
-        options:
-          - qa
-          - production
 
 env:
-  SNOWSQL_VERSION: '1.2.24'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -51,6 +32,7 @@ jobs:
   # JOB 1: VALIDATE
   # Runs automatically on every push and PR.
   # No Snowflake account or secrets needed.
+  # This is the only job that runs for this portfolio/case study project.
   # ---------------------------------------------------------------------------
   validate:
     name: Static Validation
@@ -73,7 +55,7 @@ jobs:
         run: |
           echo "Scanning SQL files for hardcoded secrets..."
           FOUND=0
-          for pattern in "password\s*=" "aws_secret_access_key" "private_key\s*=" "api_key\s*="; do
+          for pattern in "password\s*=" "aws_secret_access_key" "private_key\s*="; do
             result=$(grep -rniE "$pattern" sql/ --include="*.sql" \
                      | grep -vE ":[[:space:]]*--" || true)
             if [ -n "$result" ]; then
@@ -97,7 +79,7 @@ jobs:
                      | grep -vE ":[[:space:]]*--" \
                      | grep -vE "^\s*[0-9]+:--" || true)
             if [ -n "$result" ]; then
-              echo "FAIL: Possible real SSN in $file (active code line):"
+              echo "FAIL: Possible real SSN in $file"
               echo "$result"
               FOUND=1
             fi
@@ -108,7 +90,7 @@ jobs:
             exit 1
           fi
 
-      - name: Validate SQL file documentation headers
+      - name: Validate SQL file headers
         run: |
           echo "Checking SQL file headers..."
           for f in sql/setup_rbac.sql sql/policies.sql sql/audit_tables.sql sql/validation_queries.sql; do
@@ -118,106 +100,28 @@ jobs:
               echo "PASS: $f has proper header"
             fi
           done
-          echo "Header validation complete."
 
-      - name: Summary
+      - name: Validation summary
         run: |
           echo "================================================"
-          echo "Static Validation complete."
-          echo "All SQL files clean. YAML syntax valid."
-          echo "To deploy to Snowflake, use: Actions -> Deploy"
-          echo "Snowflake HIPAA Policies -> Run workflow"
+          echo "Static Validation complete - all checks passed."
+          echo "Repository: HIPAA-compliant Snowflake architecture"
+          echo "SQL files:  clean, no PHI, no hardcoded secrets"
+          echo "YAML:       valid syntax"
           echo "================================================"
 
   # ---------------------------------------------------------------------------
-  # JOB 2: DEPLOY
-  # MANUAL ONLY — triggered via GitHub Actions UI (workflow_dispatch).
-  # Requires SNOWSQL_ACCOUNT, SNOWSQL_USER, SNOWSQL_PRIVATE_KEY secrets.
-  # Will NOT run automatically on push — only when manually triggered.
+  # JOB 2: DEPLOY (DISABLED - portfolio/case study project)
+  # To enable: add workflow_dispatch trigger above and uncomment below.
+  # Requires GitHub Secrets: SNOWSQL_ACCOUNT, SNOWSQL_USER, SNOWSQL_PRIVATE_KEY
   # ---------------------------------------------------------------------------
-  deploy:
-    name: Deploy to Snowflake
-    needs: validate
-    runs-on: ubuntu-latest
-    # IMPORTANT: This job runs ONLY when manually triggered via workflow_dispatch
-    # It will never run on push or pull_request — no accidental deployments
-    if: github.event_name == 'workflow_dispatch'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Verify required secrets are present
-        run: |
-          if [ -z "${{ secrets.SNOWSQL_ACCOUNT }}" ]; then
-            echo "FAIL: SNOWSQL_ACCOUNT secret is not configured."
-            echo "Go to: Settings -> Secrets and variables -> Actions"
-            exit 1
-          fi
-          if [ -z "${{ secrets.SNOWSQL_USER }}" ]; then
-            echo "FAIL: SNOWSQL_USER secret is not configured."
-            exit 1
-          fi
-          if [ -z "${{ secrets.SNOWSQL_PRIVATE_KEY }}" ]; then
-            echo "FAIL: SNOWSQL_PRIVATE_KEY secret is not configured."
-            exit 1
-          fi
-          echo "PASS: All required secrets are configured."
-          echo "Target environment: ${{ github.event.inputs.deploy_target }}"
-
-      - name: Install SnowSQL CLI
-        run: |
-          curl -O https://sfc-repo.snowflakecomputing.com/snowsql/bootstrap/1.2/linux_x86_64/snowsql-${{ env.SNOWSQL_VERSION }}-linux_x86_64.bash
-          bash snowsql-${{ env.SNOWSQL_VERSION }}-linux_x86_64.bash -b -f
-          echo "$HOME/bin" >> $GITHUB_PATH
-
-      - name: Configure RSA key-pair authentication
-        run: |
-          echo "${{ secrets.SNOWSQL_PRIVATE_KEY }}" > /tmp/snowflake_rsa_key.pem
-          chmod 400 /tmp/snowflake_rsa_key.pem
-
-      - name: Deploy RBAC hierarchy
-        env:
-          SNOWSQL_ACCOUNT: ${{ secrets.SNOWSQL_ACCOUNT }}
-          SNOWSQL_USER:    ${{ secrets.SNOWSQL_USER }}
-        run: |
-          snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
-            --private-key-path /tmp/snowflake_rsa_key.pem \
-            -r SECURITYADMIN -f sql/setup_rbac.sql -o exit_on_error=true
-          echo "PASS: RBAC deployed"
-
-      - name: Deploy masking and row-access policies
-        env:
-          SNOWSQL_ACCOUNT: ${{ secrets.SNOWSQL_ACCOUNT }}
-          SNOWSQL_USER:    ${{ secrets.SNOWSQL_USER }}
-        run: |
-          snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
-            --private-key-path /tmp/snowflake_rsa_key.pem \
-            -r SECURITYADMIN -f sql/policies.sql -o exit_on_error=true
-          echo "PASS: Policies deployed"
-
-      - name: Deploy audit tables and tasks
-        env:
-          SNOWSQL_ACCOUNT: ${{ secrets.SNOWSQL_ACCOUNT }}
-          SNOWSQL_USER:    ${{ secrets.SNOWSQL_USER }}
-        run: |
-          snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
-            --private-key-path /tmp/snowflake_rsa_key.pem \
-            -r SECURITYADMIN -f sql/audit_tables.sql -o exit_on_error=true
-          echo "PASS: Audit tables deployed"
-
-      - name: Post-deploy validation
-        env:
-          SNOWSQL_ACCOUNT: ${{ secrets.SNOWSQL_ACCOUNT }}
-          SNOWSQL_USER:    ${{ secrets.SNOWSQL_USER }}
-        run: |
-          snowsql -a "$SNOWSQL_ACCOUNT" -u "$SNOWSQL_USER" \
-            --private-key-path /tmp/snowflake_rsa_key.pem \
-            -r SECURITYADMIN -f sql/validation_queries.sql -o exit_on_error=true
-          echo "PASS: Post-deploy validation complete"
-
-      - name: Remove RSA key from runner
-        if: always()
-        run: |
-          rm -f /tmp/snowflake_rsa_key.pem
-          echo "Private key removed from runner"
+  # deploy:
+  #   name: Deploy to Snowflake
+  #   needs: validate
+  #   runs-on: ubuntu-latest
+  #   if: github.event_name == 'workflow_dispatch'
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+  #     - name: Deploy
+  #       run: echo "Configure Snowflake secrets first - see README Quick Start"

@@ -671,13 +671,16 @@ healthcare-hipaa-rbac-audit/
 │   ├── policies.sql                   # 12 masking policies + hospital row-access isolation
 │   ├── audit_tables.sql               # Immutable audit log, DLP task, S3 archival, views
 │   ├── validation_queries.sql         # Compliance scorecard — run before every audit
-│   └── cleanup.sql                    # Demo/trial teardown (NEVER run in production)
-│
+│   ├── cleanup.sql                    # Demo/trial teardown (NEVER run in production)
+│   ├── synthetic_data.sql
+    └── security_hardening.sql
 ├── tests/
-│   └── test_masking_policies.sql      # Behavioral tests — verify masking per role
+│   ├── test_masking_policies.sql      # Behavioral tests — verify masking per role
+|   └── test_row_access_policies.sql
 │
 ├── docs/
-│   └── hipaa_mapping_table.md         # §164.312 & §164.514 → implementation mapping
+│   ├── hipaa_mapping_table.md         # §164.312 & §164.514 → implementation mapping
+|   └── runbook.md 
 │
 └── .github/
     └── workflows/
